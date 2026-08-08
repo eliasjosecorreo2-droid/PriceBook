@@ -8,166 +8,226 @@
   <link rel="manifest" href="res/webmanifest.json">
   <link rel="stylesheet" href="lib/bootstrap.min.css">
   <link rel="stylesheet" href="lib/bootstrap-icons.min.css">
+
+  <style>
+    /* Prevents 'pull-to-refresh' effect and accidental reloads when pulling down on mobile devices */
+    html, body {
+      overscroll-behavior-y: contain;
+    }
+  </style>
 </head>
-<body class="p-3">
+<body class="px-2 user-select-none">
 
-  <div class="card mb-4 sticky-top">
-    <div class="card-body">
-
-      <div class="input-group mb-3">
-        <span class="input-group-text"><i class="bi bi-calculator"></i></span>
-        <input type="number" id="rateInput" class="form-control" min="0" placeholder="Tasa de cambio">
-      </div>
-
-      <div class="input-group">
-        <span class="input-group-text"><i class="bi bi-search"></i></span>
-        <input type="search" id="searchInput" class="form-control" placeholder="Buscar">
-      </div>
-
+  <!-- 
+    ============================================================================
+    CRITICAL WORKAROUND: Android & Chrome Mobile Focus Fix (DO NOT REMOVE)
+    ============================================================================
+    1. Wrapping the inputs in a <form> with action="javascript:void(0);" and onsubmit="return false;"
+       forces the Android virtual keyboard to change the default action (IME_ACTION_NEXT) from 
+       "Jump to next field" to a "Submit" action.
+    2. On triggering the 'submit' event, JavaScript can intercept it, prevent page reload, 
+       and execute document.activeElement.blur() to cleanly hide the keyboard.
+  -->
+  <form id="controlsForm" class="card card-body mb-4 sticky-top" action="javascript:void(0);" onsubmit="return false;">
+    
+    <div class="input-group mb-3">
+      <span class="input-group-text"><i class="bi bi-calculator"></i></span>
+      <!-- 
+        CRITICAL HACK: type="text" with inputmode="decimal" is used instead of type="number".
+        Android forces focus jumping between 'number' inputs, ignoring .blur() calls.
+        type="text" + inputmode="decimal" displays the numeric keypad while disabling forced navigation.
+      -->
+      <input type="text" inputmode="decimal" id="exchangeRateInput" class="form-control" placeholder="Tasa de cambio" enterkeyhint="done">
     </div>
-  </div>
 
-  <div class="card">
-    <table class="table">
-      <thead><tr>
-        <th scope="col" class="bg-body-secondary align-middle">Producto</th>
-        <th scope="col" id="thPriceRef" class="bg-body-secondary text-center">Precio<br/>ref.</th>
-        <th scope="col" id="thPriceLocal" class="bg-body-secondary text-center">Precio<br/>local</th>
-      </tr></thead>
-      <tbody id="tableBody"></tbody>
+    <div class="input-group">
+      <span class="input-group-text"><i class="bi bi-search"></i></span>
+      <!-- enterkeyhint="search" or "done" explicitly instructs the virtual keyboard which icon to render -->
+      <input type="search" id="productSearchInput" class="form-control" placeholder="Buscar" enterkeyhint="search">
+    </div>
+
+  </form>
+
+  <div class="card table-responsive">
+    <table class="table mb-0">
+      <thead>
+        <tr>
+          <th scope="col" class="bg-body-secondary align-middle">Producto</th>
+          <th scope="col" id="basePriceHeader" class="bg-body-secondary text-center"></th>
+          <th scope="col" id="convertedPriceHeader" class="bg-body-secondary text-center">Precio<br/>Bs</th>
+        </tr>
+      </thead>
+      <tbody id="productTableBody"></tbody>
     </table>
   </div>
 
   <script src="lib/bootstrap.min.js"></script>
   <script>
-    const updateAutoTheme = () => {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      document.documentElement.setAttribute('data-bs-theme', prefersDark ? 'dark' : 'light');
+    // ============================================================================
+    // 1. STATE AND DOM REFERENCES
+    // ============================================================================
+    const products = [];
+    const controlsForm = document.getElementById('controlsForm');
+    const exchangeRateInput = document.getElementById('exchangeRateInput');
+    const productSearchInput = document.getElementById('productSearchInput');
+    const productTableBody = document.getElementById('productTableBody');
+    const basePriceHeader = document.getElementById('basePriceHeader');
+    const convertedPriceHeader = document.getElementById('convertedPriceHeader');
+    let debounceTimer;
+
+    // ============================================================================
+    // 2. THEME SYNCHRONIZATION
+    // ============================================================================
+    const syncThemeWithOS = () => {
+      document.documentElement.setAttribute('data-bs-theme', window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     };
-    updateAutoTheme();
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateAutoTheme);
+    syncThemeWithOS();
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncThemeWithOS);
 
-    const products = [
-      { name: "Arroz (1 kg)", priceRef: 1.20 },
-      { name: "Leche entera (1 L)", priceRef: 0.95 },
-      { name: "Café en grano (250g)", priceRef: 3.50 },
-      { name: "Aceite de Oliva (500ml)", priceRef: 6.80 },
-      { name: "Harina de Trigo (1 kg)", priceRef: 1.10 },
-      { name: "Pan de molde", priceRef: 1.50 },
-      { name: "Azúcar refinada (1 kg)", priceRef: 1.15 },
-      { name: "Sal de mesa (1 kg)", priceRef: 0.60 },
-      { name: "Pasta corta (500g)", priceRef: 0.90 },
-      { name: "Atún en lata (140g)", priceRef: 1.75 },
-      { name: "Sardinas en lata", priceRef: 1.10 },
-      { name: "Mantequilla (500g)", priceRef: 2.30 },
-      { name: "Queso blanco (1 kg)", priceRef: 5.50 },
-      { name: "Jamón pierna (1 kg)", priceRef: 6.00 },
-      { name: "Huevos (cartón de 30)", priceRef: 4.20 },
-      { name: "Pollo entero (1 kg)", priceRef: 2.80 },
-      { name: "Carne de res (1 kg)", priceRef: 7.50 },
-      { name: "Chuleta de cerdo (1 kg)", priceRef: 5.20 },
-      { name: "Tomate (1 kg)", priceRef: 1.80 },
-      { name: "Cebolla (1 kg)", priceRef: 1.50 },
-      { name: "Papa (1 kg)", priceRef: 1.40 },
-      { name: "Zanahoria (1 kg)", priceRef: 1.30 },
-      { name: "Pimentón (1 kg)", priceRef: 2.20 },
-      { name: "Lechuga", priceRef: 0.80 },
-      { name: "Manzana (1 kg)", priceRef: 3.00 },
-      { name: "Banana (1 kg)", priceRef: 1.10 },
-      { name: "Naranja (1 kg)", priceRef: 1.50 },
-      { name: "Durazno (1 kg)", priceRef: 3.50 },
-      { name: "Fresa (250g)", priceRef: 2.00 },
-      { name: "Yogurt batido (1 L)", priceRef: 2.50 },
-      { name: "Crema de leche (200ml)", priceRef: 1.60 },
-      { name: "Mayonesa (500g)", priceRef: 2.40 },
-      { name: "Ketchup (400g)", priceRef: 2.10 },
-      { name: "Mostaza (250g)", priceRef: 1.50 },
-      { name: "Vinagre (500ml)", priceRef: 0.90 },
-      { name: "Salsa de soya (200ml)", priceRef: 1.80 },
-      { name: "Avena en hojuelas (500g)", priceRef: 1.60 },
-      { name: "Cereal de maíz (300g)", priceRef: 3.20 },
-      { name: "Galletas María", priceRef: 1.00 },
-      { name: "Chocolate oscuro (100g)", priceRef: 2.20 },
-      { name: "Agua mineral (1.5 L)", priceRef: 0.70 },
-      { name: "Refresco cola (2 L)", priceRef: 2.00 },
-      { name: "Jugo de naranja envasado", priceRef: 2.30 },
-      { name: "Cerveza (lata)", priceRef: 1.25 },
-      { name: "Detergente en polvo (1 kg)", priceRef: 3.80 },
-      { name: "Jabón de baño (barra)", priceRef: 0.90 },
-      { name: "Papel higiénico (4 rollos)", priceRef: 2.50 },
-      { name: "Cloro líquido (1 L)", priceRef: 1.00 },
-      { name: "Lavaplatos en crema", priceRef: 1.40 },
-      { name: "Esponja de cocina", priceRef: 0.50 }
-    ];
+    // ============================================================================
+    // 3. UTILITIES AND STREAM PROCESSING (NDJSON)
+    // ============================================================================
+    const mockNdjsonProducts = '{"name":"Arroz (1 kg)","basePrice":1.20}\n{"name":"Leche entera (1 L)","basePrice":0.95}\n{"name":"Café en grano (250g)","basePrice":3.50}\n{"name":"Aceite de Oliva (500ml)","basePrice":6.80}\n{"name":"Harina de Trigo (1 kg)","basePrice":1.10}\n{"name":"Pan de molde","basePrice":1.50}\n{"name":"Azúcar refinada (1 kg)","basePrice":1.15}\n{"name":"Sal de mesa (1 kg)","basePrice":0.60}\n{"name":"Pasta corta (500g)","basePrice":0.90}\n{"name":"Atún en lata (140g)","basePrice":1.75}\n{"name":"Sardinas en lata","basePrice":1.10}\n{"name":"Mantequilla (500g)","basePrice":2.30}\n{"name":"Queso blanco (1 kg)","basePrice":5.50}\n{"name":"Jamón pierna (1 kg)","basePrice":6.00}\n{"name":"Huevos (cartón de 30)","basePrice":4.20}\n{"name":"Pollo entero (1 kg)","basePrice":2.80}\n{"name":"Carne de res (1 kg)","basePrice":7.50}\n{"name":"Chuleta de cerdo (1 kg)","basePrice":5.20}\n{"name":"Tomate (1 kg)","basePrice":1.80}\n{"name":"Cebolla (1 kg)","basePrice":1.50}\n{"name":"Papa (1 kg)","basePrice":1.40}\n{"name":"Zanahoria (1 kg)","basePrice":1.30}\n{"name":"Pimentón (1 kg)","basePrice":2.20}\n{"name":"Lechuga","basePrice":0.80}\n{"name":"Manzana (1 kg)","basePrice":3.00}\n{"name":"Banana (1 kg)","basePrice":1.10}\n{"name":"Naranja (1 kg)","basePrice":1.50}\n{"name":"Durazno (1 kg)","basePrice":3.50}\n{"name":"Fresa (250g)","basePrice":2.00}\n{"name":"Yogurt batido (1 L)","basePrice":2.50}\n{"name":"Crema de leche (200ml)","basePrice":1.60}\n{"name":"Mayonesa (500g)","basePrice":2.40}\n{"name":"Ketchup (400g)","basePrice":2.10}\n{"name":"Mostaza (250g)","basePrice":1.50}\n{"name":"Vinagre (500ml)","basePrice":0.90}\n{"name":"Salsa de soya (200ml)","basePrice":1.80}\n{"name":"Avena en hojuelas (500g)","basePrice":1.60}\n{"name":"Cereal de maíz (300g)","basePrice":3.20}\n{"name":"Galletas María","basePrice":1.00}\n{"name":"Chocolate oscuro (100g)","basePrice":2.20}\n{"name":"Agua mineral (1.5 L)","basePrice":0.70}\n{"name":"Refresco cola (2 L)","basePrice":2.00}\n{"name":"Jugo de naranja envasado","basePrice":2.30}\n{"name":"Cerveza (lata)","basePrice":1.25}\n{"name":"Detergente en polvo (1 kg)","basePrice":3.80}\n{"name":"Jabón de baño (barra)","basePrice":0.90}\n{"name":"Papel higiénico (4 rollos)","basePrice":2.50}\n{"name":"Cloro líquido (1 L)","basePrice":1.00}\n{"name":"Lavaplatos en crema","basePrice":1.40}\n{"name":"Esponja de cocina","basePrice":0.50}';
 
-    const rateInput = document.getElementById('rateInput');
-    const searchInput = document.getElementById('searchInput');
-    const tableBody = document.getElementById('tableBody');
-    const thPriceRef = document.getElementById('thPriceRef');
-    const thPriceLocal = document.getElementById('thPriceLocal');
+    // Sanitization helper to prevent XSS when dynamically rendering HTML
+    const escapeHtml = (str) => str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-    const renderTable = () => {
-      const rate = parseFloat(rateInput.value) || 0;
-      const searchTerm = searchInput.value.trim().toLowerCase();
-      const hideThirdCol = (rate === 0 || rate === 1);
-
-      if (hideThirdCol) {
-        thPriceRef.innerHTML = 'Precio';
-        thPriceLocal.classList.add('d-none');
-      } else {
-        thPriceRef.innerHTML = 'Precio<br/>ref.';
-        thPriceLocal.classList.remove('d-none');
+    async function* parseNdjsonStream(stream) {
+      // Decode byte chunks to UTF-8 text reader stream
+      const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += value;
+        const lines = buffer.split('\n');
+        // Retain uncompleted line fragment for the next chunk processing
+        buffer = lines.pop();
+        for (const line of lines) {
+          const trimmed = line.trim();
+          // Yield parsed JSON entity on-the-fly without accumulating lines in memory
+          if (trimmed) yield JSON.parse(trimmed);
+        }
       }
+      // Flush and yield remaining trailing line upon stream EOF
+      if (buffer.trim()) yield JSON.parse(buffer.trim());
+    }
 
-      tableBody.innerHTML = '';
+    // Ingests NDJSON ReadableStream (pluggable with File.stream() or Response.body)
+    const loadProductsFromStream = async (stream) => {
+      products.length = 0;
+      for await (const product of parseNdjsonStream(stream)) {
+        // Pre-calculate lowercase search term for maximum performance
+        products.push({
+          ...product,
+          _searchName: product.name.toLowerCase()
+        });
+      }
+      // System-locale agnostic sorting with natural numeric comparison
+      products.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+      renderProductTable();
+    };
 
-      const filteredProducts = products.filter(item => 
-        item.name.toLowerCase().includes(searchTerm)
-      );
+    // ============================================================================
+    // 4. RENDERING ENGINE
+    // ============================================================================
+    const renderProductTable = () => {
+      const rawRate = exchangeRateInput.value.replace(',', '.');
+      const exchangeRate = parseFloat(rawRate) || 0;
+      const searchQuery = productSearchInput.value.trim().toLowerCase();
+      const shouldHideConversion = (exchangeRate === 0 || exchangeRate === 1);
 
-      if (filteredProducts.length === 0) {
-        tableBody.innerHTML = `
-          <tr>
-            <td colspan="${hideThirdCol ? 2 : 3}" class="text-center py-4">
-              <i class="bi bi-inbox fs-3 d-block mb-1"></i>
-              No se encontraron coincidencias
-            </td>
-          </tr>`;
+      basePriceHeader.innerHTML = shouldHideConversion ? 'Precio' : 'Precio<br/>$';
+      convertedPriceHeader.classList.toggle('d-none', shouldHideConversion);
+
+      const matchingProducts = searchQuery 
+        ? products.filter(product => product._searchName.includes(searchQuery))
+        : products;
+
+      if (matchingProducts.length === 0) {
+        productTableBody.innerHTML = `<tr><td colspan="${shouldHideConversion ? 2 : 3}" class="text-center py-4"><i class="bi bi-inbox fs-3 d-block mb-1"></i>No se encontraron coincidencias</td></tr>`;
         return;
       }
 
-      filteredProducts.forEach(item => {
-        const row = document.createElement('tr');
-
-        if (hideThirdCol) {
-          row.innerHTML = `
-            <td>${item.name}</td>
-            <td class="text-center">${item.priceRef}</td>
-          `;
-        } else {
-          const localPrice = item.priceRef * rate;
-          const [intPart, decPart] = localPrice.toFixed(2).split('.');
-          
-          let displayPrice = `${intPart}.${decPart}`;
-          if (rate >= 100) {
-            displayPrice = `${intPart}<small class="d-block text-body-secondary">.${decPart}</small>`;
-          }
-
-          row.innerHTML = `
-            <td>${item.name}</td>
-            <td class="text-center">${item.priceRef}</td>
-            <td class="text-center">${displayPrice}</td>
-          `;
+      // Efficient rendering in a single DOM update
+      const rowsHtml = matchingProducts.map(product => {
+        const safeName = escapeHtml(product.name);
+        if (shouldHideConversion) {
+          return `<tr><td>${safeName}</td><td class="text-center">${product.basePrice}</td></tr>`;
         }
 
-        tableBody.appendChild(row);
-      });
+        const rawConvertedPrice = (product.basePrice * exchangeRate).toFixed(2);
+        const [integerPart, decimalPart] = rawConvertedPrice.split('.');
+        
+        const displayPrice = exchangeRate >= 100 
+          ? `${integerPart}<small class="d-block text-body-secondary">.${decimalPart}</small>` 
+          : `${integerPart}.${decimalPart}`;
+          
+        return `<tr><td>${safeName}</td><td class="text-center">${product.basePrice}</td><td class="text-center">${displayPrice}</td></tr>`;
+      }).join('');
+
+      productTableBody.innerHTML = rowsHtml;
     };
 
-    rateInput.addEventListener('input', renderTable);
-    searchInput.addEventListener('input', renderTable);
+    // ============================================================================
+    // 5. ANDROID & MOBILE KEYBOARD WORKAROUNDS (CRITICAL - DO NOT REMOVE)
+    // ============================================================================
 
-    renderTable();
+    /**
+     * @preserve
+     * CRITICAL WORKAROUND: Hides the virtual keyboard by removing active focus.
+     */
+    const dismissKeyboard = () => {
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+    };
+
+    /**
+     * @preserve
+     * CRITICAL WORKAROUND - DO NOT REMOVE OR REFACTOR THIS FUNCTION!
+     * Handles forced hiding of the virtual keyboard on Android when the user
+     * presses the Enter key or the Submit/Search action on the soft keyboard.
+     */
+    function initAndroidKeyboardWorkarounds() {
+      // 1. Captures the 'Done' / 'Search' action sent from the virtual keyboard
+      controlsForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        clearTimeout(debounceTimer);
+        renderProductTable();
+        dismissKeyboard();
+      });
+
+      // 2. Explicit handling of Enter key for physical keyboards or manufacturer variations
+      const handleEnterKey = (e) => {
+        if (e.key === 'Enter' || e.keyCode === 13) {
+          e.preventDefault();
+          clearTimeout(debounceTimer);
+          renderProductTable();
+          dismissKeyboard();
+        }
+      };
+
+      exchangeRateInput.addEventListener('keydown', handleEnterKey);
+      productSearchInput.addEventListener('keydown', handleEnterKey);
+    }
+
+    // ============================================================================
+    // 6. EVENT LISTENERS AND INITIALIZATION
+    // ============================================================================
+    const handleDebouncedInput = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(renderProductTable, 300);
+    };
+
+    exchangeRateInput.addEventListener('input', handleDebouncedInput);
+    productSearchInput.addEventListener('input', handleDebouncedInput);
+
+    // Initialize critical Android workarounds
+    initAndroidKeyboardWorkarounds();
+
+    // Initial stream load
+    loadProductsFromStream(new Blob([mockNdjsonProducts]).stream());
   </script>
 </body>
 </html>
