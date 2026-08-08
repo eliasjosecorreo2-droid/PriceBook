@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="es" data-bs-theme="auto">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PriceBook</title>
+
+  <link rel="manifest" href="res/webmanifest.json">
+  <link rel="stylesheet" href="lib/bootstrap.min.css">
+  <link rel="stylesheet" href="lib/bootstrap-icons.min.css">
+</head>
+<body class="p-3">
+
+  <div class="card mb-4 sticky-top">
+    <div class="card-body">
+
+      <div class="input-group mb-3">
+        <span class="input-group-text"><i class="bi bi-calculator"></i></span>
+        <input type="number" id="rateInput" class="form-control" min="0" placeholder="Tasa de cambio">
+      </div>
+
+      <div class="input-group">
+        <span class="input-group-text"><i class="bi bi-search"></i></span>
+        <input type="search" id="searchInput" class="form-control" placeholder="Buscar">
+      </div>
+
+    </div>
+  </div>
+
+  <div class="card">
+    <table class="table">
+      <thead><tr>
+        <th scope="col" class="bg-body-secondary align-middle">Producto</th>
+        <th scope="col" id="thPriceRef" class="bg-body-secondary text-center">Precio<br/>ref.</th>
+        <th scope="col" id="thPriceLocal" class="bg-body-secondary text-center">Precio<br/>local</th>
+      </tr></thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+  <script src="lib/bootstrap.min.js"></script>
+  <script>
+    const updateAutoTheme = () => {
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.setAttribute('data-bs-theme', prefersDark ? 'dark' : 'light');
+    };
+    updateAutoTheme();
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateAutoTheme);
+
+    const products = [
+      { name: "Arroz (1 kg)", priceRef: 1.20 },
+      { name: "Leche entera (1 L)", priceRef: 0.95 },
+      { name: "Café en grano (250g)", priceRef: 3.50 },
+      { name: "Aceite de Oliva (500ml)", priceRef: 6.80 },
+      { name: "Harina de Trigo (1 kg)", priceRef: 1.10 },
+      { name: "Pan de molde", priceRef: 1.50 },
+      { name: "Azúcar refinada (1 kg)", priceRef: 1.15 },
+      { name: "Sal de mesa (1 kg)", priceRef: 0.60 },
+      { name: "Pasta corta (500g)", priceRef: 0.90 },
+      { name: "Atún en lata (140g)", priceRef: 1.75 },
+      { name: "Sardinas en lata", priceRef: 1.10 },
+      { name: "Mantequilla (500g)", priceRef: 2.30 },
+      { name: "Queso blanco (1 kg)", priceRef: 5.50 },
+      { name: "Jamón pierna (1 kg)", priceRef: 6.00 },
+      { name: "Huevos (cartón de 30)", priceRef: 4.20 },
+      { name: "Pollo entero (1 kg)", priceRef: 2.80 },
+      { name: "Carne de res (1 kg)", priceRef: 7.50 },
+      { name: "Chuleta de cerdo (1 kg)", priceRef: 5.20 },
+      { name: "Tomate (1 kg)", priceRef: 1.80 },
+      { name: "Cebolla (1 kg)", priceRef: 1.50 },
+      { name: "Papa (1 kg)", priceRef: 1.40 },
+      { name: "Zanahoria (1 kg)", priceRef: 1.30 },
+      { name: "Pimentón (1 kg)", priceRef: 2.20 },
+      { name: "Lechuga", priceRef: 0.80 },
+      { name: "Manzana (1 kg)", priceRef: 3.00 },
+      { name: "Banana (1 kg)", priceRef: 1.10 },
+      { name: "Naranja (1 kg)", priceRef: 1.50 },
+      { name: "Durazno (1 kg)", priceRef: 3.50 },
+      { name: "Fresa (250g)", priceRef: 2.00 },
+      { name: "Yogurt batido (1 L)", priceRef: 2.50 },
+      { name: "Crema de leche (200ml)", priceRef: 1.60 },
+      { name: "Mayonesa (500g)", priceRef: 2.40 },
+      { name: "Ketchup (400g)", priceRef: 2.10 },
+      { name: "Mostaza (250g)", priceRef: 1.50 },
+      { name: "Vinagre (500ml)", priceRef: 0.90 },
+      { name: "Salsa de soya (200ml)", priceRef: 1.80 },
+      { name: "Avena en hojuelas (500g)", priceRef: 1.60 },
+      { name: "Cereal de maíz (300g)", priceRef: 3.20 },
+      { name: "Galletas María", priceRef: 1.00 },
+      { name: "Chocolate oscuro (100g)", priceRef: 2.20 },
+      { name: "Agua mineral (1.5 L)", priceRef: 0.70 },
+      { name: "Refresco cola (2 L)", priceRef: 2.00 },
+      { name: "Jugo de naranja envasado", priceRef: 2.30 },
+      { name: "Cerveza (lata)", priceRef: 1.25 },
+      { name: "Detergente en polvo (1 kg)", priceRef: 3.80 },
+      { name: "Jabón de baño (barra)", priceRef: 0.90 },
+      { name: "Papel higiénico (4 rollos)", priceRef: 2.50 },
+      { name: "Cloro líquido (1 L)", priceRef: 1.00 },
+      { name: "Lavaplatos en crema", priceRef: 1.40 },
+      { name: "Esponja de cocina", priceRef: 0.50 }
+    ];
+
+    const rateInput = document.getElementById('rateInput');
+    const searchInput = document.getElementById('searchInput');
+    const tableBody = document.getElementById('tableBody');
+    const thPriceRef = document.getElementById('thPriceRef');
+    const thPriceLocal = document.getElementById('thPriceLocal');
+
+    const renderTable = () => {
+      const rate = parseFloat(rateInput.value) || 0;
+      const searchTerm = searchInput.value.trim().toLowerCase();
+      const hideThirdCol = (rate === 0 || rate === 1);
+
+      if (hideThirdCol) {
+        thPriceRef.innerHTML = 'Precio';
+        thPriceLocal.classList.add('d-none');
+      } else {
+        thPriceRef.innerHTML = 'Precio<br/>ref.';
+        thPriceLocal.classList.remove('d-none');
+      }
+
+      tableBody.innerHTML = '';
+
+      const filteredProducts = products.filter(item => 
+        item.name.toLowerCase().includes(searchTerm)
+      );
+
+      if (filteredProducts.length === 0) {
+        tableBody.innerHTML = `
+          <tr>
+            <td colspan="${hideThirdCol ? 2 : 3}" class="text-center py-4">
+              <i class="bi bi-inbox fs-3 d-block mb-1"></i>
+              No se encontraron coincidencias
+            </td>
+          </tr>`;
+        return;
+      }
+
+      filteredProducts.forEach(item => {
+        const row = document.createElement('tr');
+
+        if (hideThirdCol) {
+          row.innerHTML = `
+            <td>${item.name}</td>
+            <td class="text-center">${item.priceRef}</td>
+          `;
+        } else {
+          const localPrice = item.priceRef * rate;
+          const [intPart, decPart] = localPrice.toFixed(2).split('.');
+          
+          let displayPrice = `${intPart}.${decPart}`;
+          if (rate >= 100) {
+            displayPrice = `${intPart}<small class="d-block text-body-secondary">.${decPart}</small>`;
+          }
+
+          row.innerHTML = `
+            <td>${item.name}</td>
+            <td class="text-center">${item.priceRef}</td>
+            <td class="text-center">${displayPrice}</td>
+          `;
+        }
+
+        tableBody.appendChild(row);
+      });
+    };
+
+    rateInput.addEventListener('input', renderTable);
+    searchInput.addEventListener('input', renderTable);
+
+    renderTable();
+  </script>
+</body>
+</html>
