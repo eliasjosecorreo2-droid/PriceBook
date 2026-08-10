@@ -1,7 +1,4 @@
 # PriceBook
 
-Este repositorio contiene el proyecto PriceBook.
-
-Enlace al repositorio en GitHub:
-
-[eliasjosecorreo2-droid/PriceBook](https://github.com/eliasjosecorreo2-droid/PriceBook)
+Link to web application: 
+https://eliasjosecorreo2-droid.github.io/PriceBook/
