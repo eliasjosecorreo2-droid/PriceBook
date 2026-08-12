@@ -16,6 +16,8 @@
       box-sizing: content-box !important;
       /* 2. Indispensable para mantener el ancho exacto de los números */
       font-variant-numeric: tabular-nums; 
+      /* 3. Ocultar el cursor parpadeante */
+      caret-color: transparent !important;
     }
 
     #priceTable th { background-color: var(--bs-secondary-bg); vertical-align: middle; }
@@ -35,6 +37,7 @@
             <label for="exchangeRateInput" class="input-group-text"><i aria-hidden="true" class="bi bi-calculator"></i>Tasa:</label>
             <!-- enterkeyhint="done" se usa con ayuda del listener de eventos keydown, logremos que Android nos permita controlar que sucede cuando se presiona "Enter" en el teclado virtual. -->
             <input type="text" inputmode="numeric" enterkeyhint="done" autocomplete="off" id="exchangeRateInput" class="form-control amount-input" value="0.00">
+            <button class="btn" type="button" id="clearExchangeRateBtn" aria-label="Borrar la tasa"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i></button>
           </div>
         </div>
         <div class="col-12 col-sm-6">
@@ -72,6 +75,7 @@
     let debounceTimer;
 
     const exchangeRateInput = document.getElementById('exchangeRateInput');
+    const clearExchangeRateBtn = document.getElementById('clearExchangeRateBtn');
     const inTableSearchInput = document.getElementById('inTableSearchInput');
     const priceTableBody = document.getElementById('priceTableBody');
     const basePriceHeader = document.getElementById('basePriceHeader');
@@ -123,7 +127,7 @@
 
       for await (const product of parseNdjsonStream(stream)) {
         // OPTIMIZACIÓN: Precalcula `_searchName` y `_safeName` en minúsculas para evitar llamar a `.toLowerCase()` y `escapeHtml()` repetidamente por cada producto durante las búsquedas en tiempo real.
-        products.push({ ...product, _searchName: product.name.toLowerCase(), _safeName: escapeHtml(product.name) });
+        products.push({ ...product, _searchName: product.name.toLowerCase(), _safeName: escapeHtml(product.name), _formattedBasePrice: amountFormatter.format(product.basePrice) });
       }
       products.sort((a, b) => productCollator.compare(a.name, b.name));
       renderPriceTable();
@@ -132,7 +136,7 @@
     // Renderiza la tabla de precios aplicando búsqueda y conversión monetaria. Se reconstruye el tbody en cada llamada.
     const renderPriceTable = () => {
       // Limpia caracteres no numéricos excepto el punto decimal
-      const exchangeRate = parseFloat(exchangeRateInput.value);
+      const exchangeRate = getExchangeRate();
       const searchQuery = inTableSearchInput.value.trim().toLowerCase();
 
       // Determina si se oculta la conversión (si la tasa es 0 o 1 es innecesario mostrarla)
@@ -154,7 +158,7 @@
         if (searchQuery && !product._searchName.includes(searchQuery)) continue;
         hasMatches = true;
 
-        rowsHtmlParts.push(`<tr><td>${product._safeName}</td><td>${amountFormatter.format(product.basePrice)}</td>`);
+        rowsHtmlParts.push(`<tr><td>${product._safeName}</td><td>${product._formattedBasePrice}</td>`);
         if (!shouldHideConversion) {
           const parts = amountFormatter.formatToParts(product.basePrice * exchangeRate);
           // MEJORA VISUAL: En valores grandes, reduce el tamaño del separador decimal y centavos (`<small>`) para facilitar la lectura de la cifra entera.
@@ -170,19 +174,19 @@
       rowsHtmlParts=null;
     };
 
-    // Desenfoca el elemento activo para ocultar el teclado virtual en dispositivos móviles.
-    const dismissKeyboard = () => {document.activeElement?.blur();};
     /**
      * Solución de experiencia de usuario (UX) para teclados móviles:
      * Al presionar "Enter" en cualquier campo, procesa inmediatamente la tabla sin esperar 
      * al debounce y oculta el teclado para despejar la pantalla del usuario.
      */
     const handleEnterKey = (e) => {
-      if (e.key !== 'Enter' && e.keyCode !== 13) return;
+      if (e.key !== 'Enter' && e.keyCode !== 13) return false;
       e.preventDefault();
       clearTimeout(debounceTimer);
       renderPriceTable();
-      dismissKeyboard();
+      // Desenfoca el elemento activo para ocultar el teclado virtual en dispositivos móviles.
+      document.activeElement?.blur();
+      return true;
     };
 
     /**
@@ -194,37 +198,41 @@
       debounceTimer = setTimeout(renderPriceTable, 250);
     };
 
-    let rawDigits = '';
     const MAX_AMOUNT_DIGITS=8;
-    const updateAmount = () => {
-      exchangeRateInput.value = amountFormatter.format(parseInt(rawDigits || '0', 10) / 100);
-      handleDebouncedInput();
-    };
-    exchangeRateInput.addEventListener('keydown', (e) => {
-      // Permitir teclas como Ctrl+C y Ctrl+V
-      if (e.ctrlKey || e.metaKey ) return;
+    let rawDigits = '';
+    const getExchangeRate = () => parseInt(rawDigits || '0', 10) / 100;
 
-      e.preventDefault();
-      if (/^[0-9]$/.test(e.key)) {
-        if (rawDigits.length >= MAX_AMOUNT_DIGITS || (rawDigits === '' && e.key === '0') ) return;
-        rawDigits += e.key;
-      } else if (e.key === 'Backspace') {
-        rawDigits = rawDigits.slice(0, -1);
-      } else { handleEnterKey(e);return; }
+    // Forzar siempre que la posición del cursor esté al final
+    const forceCaretToEnd = () => {
+      requestAnimationFrame(() => {
+        const len = exchangeRateInput.value.length;
+        exchangeRateInput.setSelectionRange(len, len);
+      });
+    };
+    ['click', 'focus', 'keyup'].forEach(evt => {
+      exchangeRateInput.addEventListener(evt, forceCaretToEnd);
+    });
+
+    const updateAmount = () => {
+      exchangeRateInput.value = amountFormatter.format(getExchangeRate());
+      handleDebouncedInput();
+      forceCaretToEnd();
+    };
+    exchangeRateInput.addEventListener('input', () => {
+      const digitsOnly = exchangeRateInput.value.replace(/\D/g, '');
+      rawDigits = digitsOnly.replace(/^0+/, '').slice(0, MAX_AMOUNT_DIGITS);
       updateAmount();
     });
-    exchangeRateInput.addEventListener('paste', (e) => {
-      e.preventDefault();
-      const texto = (e.clipboardData || window.clipboardData).getData('text');
-      const soloNumeros = texto.replace(/\D/g, '');
-      if (soloNumeros) {
-        rawDigits = (rawDigits + soloNumeros).slice(0, MAX_AMOUNT_DIGITS);
-        updateAmount();
-      }
+
+    exchangeRateInput.addEventListener('keydown', handleEnterKey);
+    clearExchangeRateBtn.addEventListener('click', () => {
+      rawDigits = ''; updateAmount();
     });
 
     inTableSearchInput.addEventListener('keydown', handleEnterKey);
     inTableSearchInput.addEventListener('input', handleDebouncedInput);
+
+    updateAmount();
 
     // Simula una transmisión en vivo cargando la cadena mock como un ReadableStream de red
     loadProductsFromStream(new Blob([mockNdjsonProducts]).stream());
