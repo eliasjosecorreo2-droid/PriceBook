@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es" data-bs-theme="auto">
+<html lang="es-US" data-bs-theme="auto">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,6 +10,13 @@
   <style>
     /* Evita el efecto de "rebote" (pull-to-refresh) al deslizar en móviles, logrando una sensación de aplicación nativa.*/
     html, body { overscroll-behavior-y: contain; }
+
+    .amount-input {
+      /* 1. Hace que la unidad 'ch' mida solo el área de texto, ignorando el padding de Bootstrap */
+      box-sizing: content-box !important;
+      /* 2. Indispensable para mantener el ancho exacto de los números */
+      font-variant-numeric: tabular-nums; 
+    }
 
     #priceTable th { background-color: var(--bs-secondary-bg); vertical-align: middle; }
     #priceTable th, #priceTable td { text-align: center; }
@@ -25,9 +32,9 @@
       <search class="row g-2">
         <div class="col-12 col-sm-6 mb-2">
           <div class="input-group">
-            <span class="input-group-text" aria-hidden="true"><i class="bi bi-calculator"></i></span>
-            <!-- Los primeros tres atributos se usan de esa forma para que con ayuda del listener de eventos keydown, logremos que Android nos permita controlar que sucede cuando se presiona "Enter" en el teclado virtual. -->
-            <input type="text" inputmode="decimal" enterkeyhint="done" id="exchangeRateInput" class="form-control" placeholder="Tasa de cambio" aria-label="Tasa de cambio">
+            <label for="exchangeRateInput" class="input-group-text"><i aria-hidden="true" class="bi bi-calculator"></i>Tasa:</label>
+            <!-- enterkeyhint="done" se usa con ayuda del listener de eventos keydown, logremos que Android nos permita controlar que sucede cuando se presiona "Enter" en el teclado virtual. -->
+            <input type="text" inputmode="numeric" enterkeyhint="done" autocomplete="off" id="exchangeRateInput" class="form-control amount-input" value="0.00">
           </div>
         </div>
         <div class="col-12 col-sm-6">
@@ -104,26 +111,28 @@
       if (buffer.trim()) yield JSON.parse(buffer.trim());
     }
 
-    /**
-     * Carga y procesa los productos desde el stram NDJSON.
-     */
+    // Ordena alfabéticamente respetando caracteres locales, diferencias numéricas ("2" antes que "10") y sin distinguir acentos.
+    const productCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+    const amountFormatter = new Intl.NumberFormat(document.documentElement.lang || 'es-ES', {
+      style: 'decimal', minimumFractionDigits: 2, maximumFractionDigits: 2
+    });
+
     const loadProductsFromStream = async (stream) => {
       products.length = 0;// Se vacía el array existente en lugar de reasignarlo, porque products fue declarado como const y otras funciones usan esta misma referencia.
 
       for await (const product of parseNdjsonStream(stream)) {
-        // OPTIMIZACIÓN: Precalcula `_searchName` en minúsculas para evitar llamar a `.toLowerCase()` repetidamente por cada producto durante las búsquedas en tiempo real.
-        products.push({ ...product, _searchName: product.name.toLowerCase() });
+        // OPTIMIZACIÓN: Precalcula `_searchName` y `_safeName` en minúsculas para evitar llamar a `.toLowerCase()` y `escapeHtml()` repetidamente por cada producto durante las búsquedas en tiempo real.
+        products.push({ ...product, _searchName: product.name.toLowerCase(), _safeName: escapeHtml(product.name) });
       }
-
-      // Ordena alfabéticamente respetando caracteres locales, diferencias numéricas ("2" antes que "10") y sin distinguir acentos.
-      products.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+      products.sort((a, b) => productCollator.compare(a.name, b.name));
       renderPriceTable();
     };
 
     // Renderiza la tabla de precios aplicando búsqueda y conversión monetaria. Se reconstruye el tbody en cada llamada.
     const renderPriceTable = () => {
       // Limpia caracteres no numéricos excepto el punto decimal
-      const exchangeRate = parseFloat(exchangeRateInput.value.replace(/[^0-9.]/g, "")) || 0;
+      const exchangeRate = parseFloat(exchangeRateInput.value);
       const searchQuery = inTableSearchInput.value.trim().toLowerCase();
 
       // Determina si se oculta la conversión (si la tasa es 0 o 1 es innecesario mostrarla)
@@ -138,57 +147,43 @@
 
       // Identifica tasas elevadas (ej. hiperinflacionarias) para dar formato visual diferencial a los precios convertidos, de modo que la parte decimal se muestre como menos importante que la parte entera.
       const isHighRate = exchangeRate >= 100;
-      let rowsHtml = '';
+      let rowsHtmlParts = [];
       let hasMatches = false;// permite saber si hubo resultados, para mostrar una fila informativa en caso contrario.
 
       for (const product of products) {
         if (searchQuery && !product._searchName.includes(searchQuery)) continue;
         hasMatches = true;
 
-        // Protege contra XSS si el nombre proviene de una fuente externa
-        const safeName = escapeHtml(product.name);
-
-        if (shouldHideConversion) {
-          rowsHtml += `<tr><td>${safeName}</td><td>${product.basePrice}</td></tr>`;
-        } else {
-          const rawConverted = (product.basePrice * exchangeRate).toFixed(2);
-
-          // MEJORA VISUAL: En valores grandes, reduce el tamaño de los centavos (`<small>`) para facilitar la lectura de la cifra entera.
-          const displayPrice = isHighRate 
-            ? `${rawConverted.slice(0, rawConverted.indexOf('.'))}<small>${rawConverted.slice(rawConverted.indexOf('.'))}</small>` 
-            : rawConverted;
-
-          rowsHtml += `<tr><td>${safeName}</td><td>${product.basePrice}</td><td>${displayPrice}</td></tr>`;
+        rowsHtmlParts.push(`<tr><td>${product._safeName}</td><td>${amountFormatter.format(product.basePrice)}</td>`);
+        if (!shouldHideConversion) {
+          const parts = amountFormatter.formatToParts(product.basePrice * exchangeRate);
+          // MEJORA VISUAL: En valores grandes, reduce el tamaño del separador decimal y centavos (`<small>`) para facilitar la lectura de la cifra entera.
+          const displayPrice = parts.map(p => (isHighRate && (p.type === 'decimal' || p.type === 'fraction'))? `<small>${p.value}</small>`: p.value ).join('');
+          rowsHtmlParts.push(`<td>${displayPrice}</td>`);
         }
+        rowsHtmlParts.push("</tr>");
       }
 
       priceTableBody.innerHTML = hasMatches 
-        ? rowsHtml 
+        ? rowsHtmlParts.join('')
         : `<tr><td colspan="${shouldHideConversion ? 2 : 3}" class="text-center py-4"><i class="bi bi-inbox fs-3 d-block mb-1"></i>No se encontraron coincidencias</td></tr>`;
+      rowsHtmlParts=null;
     };
 
     // Desenfoca el elemento activo para ocultar el teclado virtual en dispositivos móviles.
-    const dismissKeyboard = () => {
-      if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur();
-    };
-
+    const dismissKeyboard = () => {document.activeElement?.blur();};
     /**
      * Solución de experiencia de usuario (UX) para teclados móviles:
      * Al presionar "Enter" en cualquier campo, procesa inmediatamente la tabla sin esperar 
      * al debounce y oculta el teclado para despejar la pantalla del usuario.
      */
-    function initAndroidKeyboardWorkarounds() {
-      const handleEnterKey = (e) => {
-        if (e.key === 'Enter' || e.keyCode === 13) {
-          e.preventDefault();
-          clearTimeout(debounceTimer);
-          renderPriceTable();
-          dismissKeyboard();
-        }
-      };
-      exchangeRateInput.addEventListener('keydown', handleEnterKey);
-      inTableSearchInput.addEventListener('keydown', handleEnterKey);
-    }
+    const handleEnterKey = (e) => {
+      if (e.key !== 'Enter' && e.keyCode !== 13) return;
+      e.preventDefault();
+      clearTimeout(debounceTimer);
+      renderPriceTable();
+      dismissKeyboard();
+    };
 
     /**
      * DEBOUNCE: Retarda la ejecución del renderizado 250ms mientras el usuario escribe,
@@ -199,9 +194,37 @@
       debounceTimer = setTimeout(renderPriceTable, 250);
     };
 
-    exchangeRateInput.addEventListener('input', handleDebouncedInput);
+    let rawDigits = '';
+    const MAX_AMOUNT_DIGITS=8;
+    const updateAmount = () => {
+      exchangeRateInput.value = amountFormatter.format(parseInt(rawDigits || '0', 10) / 100);
+      handleDebouncedInput();
+    };
+    exchangeRateInput.addEventListener('keydown', (e) => {
+      // Permitir teclas como Ctrl+C y Ctrl+V
+      if (e.ctrlKey || e.metaKey ) return;
+
+      e.preventDefault();
+      if (/^[0-9]$/.test(e.key)) {
+        if (rawDigits.length >= MAX_AMOUNT_DIGITS || (rawDigits === '' && e.key === '0') ) return;
+        rawDigits += e.key;
+      } else if (e.key === 'Backspace') {
+        rawDigits = rawDigits.slice(0, -1);
+      } else { handleEnterKey(e);return; }
+      updateAmount();
+    });
+    exchangeRateInput.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const texto = (e.clipboardData || window.clipboardData).getData('text');
+      const soloNumeros = texto.replace(/\D/g, '');
+      if (soloNumeros) {
+        rawDigits = (rawDigits + soloNumeros).slice(0, MAX_AMOUNT_DIGITS);
+        updateAmount();
+      }
+    });
+
+    inTableSearchInput.addEventListener('keydown', handleEnterKey);
     inTableSearchInput.addEventListener('input', handleDebouncedInput);
-    initAndroidKeyboardWorkarounds();
 
     // Simula una transmisión en vivo cargando la cadena mock como un ReadableStream de red
     loadProductsFromStream(new Blob([mockNdjsonProducts]).stream());
