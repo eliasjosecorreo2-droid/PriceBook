@@ -49,10 +49,11 @@
   <main class="container-sm px-2">
     <section aria-label="Controles para la tabla de precios" class="bg-body mb-4 sticky-top shadow-sm">
       <search class="row g-2">
-        <div class="col-12 col-sm-6 order-2 order-sm-1 my-2">
-          <div class="input-group">
+        <div class="col-12 col-sm-6 order-2 order-sm-1 my-2 d-flex justify-content-center">
+          <div class="input-group w-auto">
             <span class="input-group-text" aria-hidden="true"><i class="bi bi-search"></i></span>
-            <input enterkeyhint="search" type="search" id="inTableSearchInput" class="form-control" placeholder="Buscar precios de ..." aria-label="Buscar precios de ...">
+            <input type="text" enterkeyhint="search" id="inTableSearchInput" class="form-control" maxlength="20" style="box-sizing: content-box !important; max-width: 20ch;" placeholder="Buscar precios de ..." aria-label="Buscar precios de ...">
+            <button class="btn btn-outline-secondary d-none" type="button" id="clearInTableSearchBtn" aria-label="Borrar la búsqueda"><i class="bi bi-x-circle-fill" aria-hidden="true"></i></button>
           </div>
         </div>
         <div class="col-12 col-sm-6 order-1 order-sm-2 my-2 d-flex justify-content-center">
@@ -94,6 +95,7 @@
     const exchangeRateInput = document.getElementById('exchangeRateInput');
     const clearExchangeRateBtn = document.getElementById('clearExchangeRateBtn');
     const inTableSearchInput = document.getElementById('inTableSearchInput');
+    const clearInTableSearchBtn = document.getElementById('clearInTableSearchBtn');
     const priceTableBody = document.getElementById('priceTableBody');
     const basePriceHeader = document.getElementById('basePriceHeader');
     const convertedPriceHeader = document.getElementById('convertedPriceHeader');
@@ -216,7 +218,7 @@
     };
 
     const MAX_AMOUNT_DIGITS=8;
-    exchangeRateInput.style.width = `${amountFormatter.format((Math.pow(10,MAX_AMOUNT_DIGITS)-1)/100).length + 0.5}ch`;
+    exchangeRateInput.style.maxWidth = `${amountFormatter.format((Math.pow(10,MAX_AMOUNT_DIGITS)-1)/100).length + 0.5}ch`;
 
     let rawDigits = '';
     const getExchangeRate = () => parseInt(rawDigits || '0', 10) / 100;
@@ -253,7 +255,15 @@
     });
 
     inTableSearchInput.addEventListener('keydown', handleEnterKey);
-    inTableSearchInput.addEventListener('input', handleDebouncedInput);
+    inTableSearchInput.addEventListener('input', () => {
+      clearInTableSearchBtn.classList.toggle('d-none', inTableSearchInput.value=='');
+      handleDebouncedInput();
+    });
+    clearInTableSearchBtn.addEventListener('click', () => {
+      inTableSearchInput.value='';
+      handleDebouncedInput();
+      inTableSearchInput.focus();
+    });
 
     updateAmount();
 
