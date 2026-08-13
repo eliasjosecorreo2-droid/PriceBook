@@ -47,20 +47,20 @@
 <body class="user-select-none">
   <header><!-- El encabezado se agregará en el futuro. --></header>
   <main class="container-sm px-2">
-    <section aria-label="Controles para la tabla de precios" class="card card-body mb-3 sticky-top shadow-sm">
+    <section aria-label="Controles para la tabla de precios" class="bg-body mb-4 sticky-top shadow-sm">
       <search class="row g-2">
-        <div class="col-12 col-sm-6 mb-2">
-          <div class="input-group">
-            <label for="exchangeRateInput" class="input-group-text"><i aria-hidden="true" class="bi bi-currency-exchange text-success mx-1"></i>Tasa ($ / Bs) →</label>
-            <!-- enterkeyhint="done" se usa con ayuda del listener de eventos keydown, logremos que Android nos permita controlar que sucede cuando se presiona "Enter" en el teclado virtual. -->
-            <input type="text" inputmode="numeric" enterkeyhint="done" autocomplete="off" id="exchangeRateInput" class="form-control amount-input text-end" style="transition: color 0.25s ease;box-sizing: content-box !important;" value="0.00">
-            <button class="btn btn-outline-secondary d-none" type="button" id="clearExchangeRateBtn" aria-label="Borrar la tasa"><i class="bi bi-x-circle-fill" aria-hidden="true"></i></button>
-          </div>
-        </div>
-        <div class="col-12 col-sm-6">
+        <div class="col-12 col-sm-6 order-2 order-sm-1 my-2">
           <div class="input-group">
             <span class="input-group-text" aria-hidden="true"><i class="bi bi-search"></i></span>
             <input enterkeyhint="search" type="search" id="inTableSearchInput" class="form-control" placeholder="Buscar precios de ..." aria-label="Buscar precios de ...">
+          </div>
+        </div>
+        <div class="col-12 col-sm-6 order-1 order-sm-2 my-2 d-flex justify-content-center">
+          <div class="input-group w-auto">
+            <label for="exchangeRateInput" class="input-group-text"><i aria-hidden="true" class="bi bi-currency-exchange text-success mx-1"></i>Tasa Bs →</label>
+            <!-- enterkeyhint="done" se usa con ayuda del listener de eventos keydown, logremos que Android nos permita controlar que sucede cuando se presiona "Enter" en el teclado virtual. -->
+            <input type="text" inputmode="numeric" enterkeyhint="done" autocomplete="off" id="exchangeRateInput" class="form-control amount-input text-end" style="transition: color 0.25s ease; box-sizing: content-box !important; " value="0.00">
+            <button class="btn btn-outline-secondary d-none" type="button" id="clearExchangeRateBtn" aria-label="Borrar la tasa"><i class="bi bi-x-circle-fill" aria-hidden="true"></i></button>
           </div>
         </div>
       </search>
@@ -161,7 +161,7 @@
 
       // OPTIMIZACIÓN DOM: Solo modifica los encabezados e interactúa con clases si el estado de visibilidad cambió
       if (lastHideConversionState !== shouldHideConversion) {
-        basePriceHeader.innerHTML = shouldHideConversion ? 'Precio' : 'Precio<br>$';
+        basePriceHeader.innerHTML = shouldHideConversion ? 'Precio' : 'Precio<br>Base';
         convertedPriceHeader.classList.toggle('d-none', shouldHideConversion);
         lastHideConversionState = shouldHideConversion;
       }
@@ -216,6 +216,8 @@
     };
 
     const MAX_AMOUNT_DIGITS=8;
+    exchangeRateInput.style.width = `${amountFormatter.format((Math.pow(10,MAX_AMOUNT_DIGITS)-1)/100).length + 0.5}ch`;
+
     let rawDigits = '';
     const getExchangeRate = () => parseInt(rawDigits || '0', 10) / 100;
 
