@@ -11,18 +11,35 @@
     /* Evita el efecto de "rebote" (pull-to-refresh) al deslizar en móviles, logrando una sensación de aplicación nativa.*/
     html, body { overscroll-behavior-y: contain; }
 
+    @font-face {
+      font-family: 'JetBrainsMono Regular';
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+      src: url('lib/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+    }
+    @font-face {
+      font-family: 'JetBrainsMono Bold';
+      font-style: normal;
+      font-weight: 700;
+      font-display: swap;
+      src: url('lib/fonts/JetBrainsMono-Bold.woff2') format('woff2');
+    }
     .amount-input {
-      /* 1. Hace que la unidad 'ch' mida solo el área de texto, ignorando el padding de Bootstrap */
-      box-sizing: content-box !important;
-      /* 2. Indispensable para mantener el ancho exacto de los números */
-      font-variant-numeric: tabular-nums; 
-      /* 3. Ocultar el cursor parpadeante */
+      font-family: 'JetBrainsMono Bold', monospace;
+      font-variant-numeric: tabular-nums;
       caret-color: transparent !important;
     }
 
     #priceTable th { background-color: var(--bs-secondary-bg); vertical-align: middle; }
     #priceTable th, #priceTable td { text-align: center; }
     #priceTable th:first-child, #priceTable td:first-child { text-align: start; }
+    #priceTable td:nth-child(2), #priceTable td:nth-child(3) {
+      font-family: 'JetBrainsMono Regular', monospace;
+      font-variant-numeric: tabular-nums;
+      font-weight: 400; /* Un peso mediano para distinguir las cifras del texto general */
+    }
+    #priceTable td:nth-child(3) { color: var(--bs-info-text-emphasis); }
     #priceTable td small { color: var(--bs-secondary-color); }
   </style>
 </head>
@@ -34,10 +51,10 @@
       <search class="row g-2">
         <div class="col-12 col-sm-6 mb-2">
           <div class="input-group">
-            <label for="exchangeRateInput" class="input-group-text"><i aria-hidden="true" class="bi bi-calculator"></i>Tasa:</label>
+            <label for="exchangeRateInput" class="input-group-text"><i aria-hidden="true" class="bi bi-currency-exchange text-success mx-1"></i>Tasa ($ / Bs) →</label>
             <!-- enterkeyhint="done" se usa con ayuda del listener de eventos keydown, logremos que Android nos permita controlar que sucede cuando se presiona "Enter" en el teclado virtual. -->
-            <input type="text" inputmode="numeric" enterkeyhint="done" autocomplete="off" id="exchangeRateInput" class="form-control amount-input" value="0.00">
-            <button class="btn" type="button" id="clearExchangeRateBtn" aria-label="Borrar la tasa"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i></button>
+            <input type="text" inputmode="numeric" enterkeyhint="done" autocomplete="off" id="exchangeRateInput" class="form-control amount-input text-end" style="transition: color 0.25s ease;box-sizing: content-box !important;" value="0.00">
+            <button class="btn btn-outline-secondary d-none" type="button" id="clearExchangeRateBtn" aria-label="Borrar la tasa"><i class="bi bi-x-circle-fill" aria-hidden="true"></i></button>
           </div>
         </div>
         <div class="col-12 col-sm-6">
@@ -214,7 +231,11 @@
     });
 
     const updateAmount = () => {
-      exchangeRateInput.value = amountFormatter.format(getExchangeRate());
+      const currentRate = getExchangeRate();
+      const isActive = currentRate > 0;
+      exchangeRateInput.value = amountFormatter.format(currentRate);
+      exchangeRateInput.classList.toggle('text-success-emphasis', isActive);
+      clearExchangeRateBtn.classList.toggle('d-none', !isActive);
       handleDebouncedInput();
       forceCaretToEnd();
     };
@@ -226,7 +247,7 @@
 
     exchangeRateInput.addEventListener('keydown', handleEnterKey);
     clearExchangeRateBtn.addEventListener('click', () => {
-      rawDigits = ''; updateAmount();
+      rawDigits = ''; updateAmount(); exchangeRateInput.focus();
     });
 
     inTableSearchInput.addEventListener('keydown', handleEnterKey);
