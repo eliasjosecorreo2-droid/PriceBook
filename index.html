@@ -211,7 +211,7 @@
     };
 
     const MAX_AMOUNT_DIGITS=8;
-    exchangeRateInput.style.maxWidth = `${amountFormatter.format((Math.pow(10,MAX_AMOUNT_DIGITS)-1)/100).length + 0.5}ch`;
+    exchangeRateInput.style.maxWidth = (MAX_AMOUNT_DIGITS+1)+"ch";
     const getExchangeRate = () => {
       const rate = parseFloat(exchangeRateInput.value);
       return isNaN(rate) ? 0 : rate;
@@ -223,48 +223,47 @@
       handleDebouncedInput();
     };
     let lastExchangeRateVal = '';
-    exchangeRateInput.addEventListener('input', () => {
-      let val = exchangeRateInput.value;
+    exchangeRateInput.addEventListener('input', (e) => {
+      const input = e.target;
+      let val = input.value;
+      const originalLength = val.length;
+      const cursorPosition = input.selectionStart;
+      // 1. Manejo de formatos internacionales (coma vs punto)
       if (val.includes(',') && val.includes('.')) {
-        if (val.indexOf(',') < val.indexOf('.')) {
-          // Formato "1,234.56": Coma = miles, Punto = decimal
-          val = val.replace(/,/g, '');
-        } else {
-          // Formato "1.234,56": Punto = miles, Coma = decimal
-          val = val.replace(/\./g, '').replace(',', '.');
-        }
+        val = val.indexOf(',') < val.indexOf('.') 
+          ? val.replace(/,/g, '') 
+          : val.replace(/\./g, '').replace(',', '.');
       } else {
-        // Si solo hay comas (ej. teclado móvil "12,50"), se convierte a punto decimal
         val = val.replace(',', '.');
       }
+      // 2. Limpieza de caracteres no numéricos
       val = val.replace(/[^0-9.]/g, '');
-      // Asegura que solo exista UN punto decimal
-      const parts = val.split('.');
-      if (parts.length > 2) {
-        val = parts[0] + '.' + parts.slice(1).join('');
+      // 3. Asegurar un único punto decimal
+      const firstDot = val.indexOf('.');
+      if (firstDot !== -1) {
+        val = val.slice(0, firstDot + 1) + val.slice(firstDot + 1).replace(/\./g, '');
       }
-      // Restringe la cantidad total de dígitos a MAX_AMOUNT_DIGITS
-      let integerPart = parts[0] || '';
-      let decimalPart = parts[1] !== undefined ? parts[1] : null;
-      if (integerPart.length > MAX_AMOUNT_DIGITS) {
-        integerPart = integerPart.slice(0, MAX_AMOUNT_DIGITS);
-      }
-      const remainingDigitsForDecimals = MAX_AMOUNT_DIGITS - integerPart.length;
-      if (decimalPart !== null) {
-        if (remainingDigitsForDecimals <= 0) {
-          val = integerPart;
-        } else {
-          decimalPart = decimalPart.slice(0, remainingDigitsForDecimals);
-          val = integerPart + '.' + decimalPart;
-        }
+      // 4. Restricción de dígitos (MAX_AMOUNT_DIGITS) optimizada
+      if (firstDot !== -1) {
+        const intPart = val.slice(0, firstDot);
+        const decPart = val.slice(firstDot + 1);
+        const trimmedInt = intPart.slice(0, MAX_AMOUNT_DIGITS);
+        const availableForDec = MAX_AMOUNT_DIGITS - trimmedInt.length;
+        const trimmedDec = decPart.slice(0, Math.max(0, availableForDec));
+        val = trimmedInt + (availableForDec > 0 ? '.' + trimmedDec : '');
       } else {
-        val = integerPart;
+        val = val.slice(0, MAX_AMOUNT_DIGITS);
       }
-      // Actualiza el DOM solo si hubo cambios de formato
-      if (exchangeRateInput.value !== val) {
-        exchangeRateInput.value = val;
+      // 5. Prevención del salto del cursor (Cursor Jumping)
+      const newLength = val.length;
+      const lengthDiff = originalLength - newLength;
+      if (input.value !== val) {
+        input.value = val;
+        // Ajustar la posición del cursor basada en los caracteres eliminados antes de él
+        const newCursorPosition = Math.max(0, cursorPosition - lengthDiff);
+        input.setSelectionRange(newCursorPosition, newCursorPosition);
       }
-      // Re-renderiza solo si el valor procesado cambió
+      // 6. Actualización condicional de UI
       if (val !== lastExchangeRateVal) {
         lastExchangeRateVal = val;
         updateExchangeRateUI();
@@ -272,11 +271,20 @@
     });
     exchangeRateInput.addEventListener('keydown', handleEnterKey);
     exchangeRateInput.addEventListener('focus', () => exchangeRateInput.select());
-    // Limpia puntos decimales al final cuando el campo pierde el foco (ej: "45." -> "45")
+    // Limpia ceros a la izquierda y puntos decimales al final cuando el campo pierde el foco (ej: "45." -> "45")
     exchangeRateInput.addEventListener('blur', () => {
-      if (exchangeRateInput.value.endsWith('.')) {
-        exchangeRateInput.value = exchangeRateInput.value.slice(0, -1);
-        lastExchangeRateVal = exchangeRateInput.value;
+      let val = exchangeRateInput.value;
+      if (!val) return;
+      // Normalización automática: parseFloat elimina ceros a la izquierda ("05" -> 5) y puntos decimales vacíos ("5." -> 5). toString() lo vuelve a string limpio.
+      const num = parseFloat(val);
+      if (!isNaN(num)) {
+        val = num.toString();
+      } else {
+        val = ''; // Si por alguna razón quedó algo inválido, limpiar
+      }
+      if (exchangeRateInput.value !== val) {
+        exchangeRateInput.value = val;
+        lastExchangeRateVal = val;
         updateExchangeRateUI();
       }
     });
