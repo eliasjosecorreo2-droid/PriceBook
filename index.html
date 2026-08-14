@@ -25,11 +25,6 @@
       font-display: swap;
       src: url('lib/fonts/JetBrainsMono-Bold.woff2') format('woff2');
     }
-    .amount-input {
-      font-family: 'JetBrainsMono Bold', monospace;
-      font-variant-numeric: tabular-nums;
-      caret-color: transparent !important;
-    }
 
     #priceTable th { background-color: var(--bs-secondary-bg); vertical-align: middle; }
     #priceTable th, #priceTable td { text-align: center; }
@@ -59,8 +54,7 @@
         <div class="col-12 col-sm-6 order-1 order-sm-2 my-2 d-flex justify-content-center">
           <div class="input-group w-auto">
             <label for="exchangeRateInput" class="input-group-text"><i aria-hidden="true" class="bi bi-currency-exchange text-success mx-1"></i>Tasa Bs →</label>
-            <!-- enterkeyhint="done" se usa con ayuda del listener de eventos keydown, logremos que Android nos permita controlar que sucede cuando se presiona "Enter" en el teclado virtual. -->
-            <input type="text" inputmode="numeric" enterkeyhint="done" autocomplete="off" id="exchangeRateInput" class="form-control amount-input text-end" style="transition: color 0.25s ease; box-sizing: content-box !important; " value="0.00">
+            <input type="text" inputmode="decimal" enterkeyhint="done" id="exchangeRateInput" class="form-control text-end" style="transition: color 0.25s ease; box-sizing: content-box !important; font-family: 'JetBrainsMono Bold', monospace; font-variant-numeric: tabular-nums; " placeholder="0.00" value="">
             <button class="btn btn-outline-secondary d-none" type="button" id="clearExchangeRateBtn" aria-label="Borrar la tasa"><i class="bi bi-x-circle-fill" aria-hidden="true"></i></button>
           </div>
         </div>
@@ -110,6 +104,7 @@
 
     // Función de sanitización XSS
     const escapeHtml = (str) => str.replace(/[&<>]/g, char => ESCAPE_MAP[char]);
+    const optimizeForSearch = (str) => str.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
     /**
      * Generador asíncrono para procesar el stream de datos NDJSON incrementalmente.
@@ -136,8 +131,7 @@
 
     // Ordena alfabéticamente respetando caracteres locales, diferencias numéricas ("2" antes que "10") y sin distinguir acentos.
     const productCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-
-    const amountFormatter = new Intl.NumberFormat(document.documentElement.lang || 'es-ES', {
+    const amountFormatter = new Intl.NumberFormat(document.documentElement.lang || 'es-US', {
       style: 'decimal', minimumFractionDigits: 2, maximumFractionDigits: 2
     });
 
@@ -146,7 +140,7 @@
 
       for await (const product of parseNdjsonStream(stream)) {
         // OPTIMIZACIÓN: Precalcula `_searchName` y `_safeName` en minúsculas para evitar llamar a `.toLowerCase()` y `escapeHtml()` repetidamente por cada producto durante las búsquedas en tiempo real.
-        products.push({ ...product, _searchName: product.name.toLowerCase(), _safeName: escapeHtml(product.name), _formattedBasePrice: amountFormatter.format(product.basePrice) });
+        products.push({ ...product, _searchName: optimizeForSearch(product.name), _safeName: escapeHtml(product.name), _formattedBasePrice: amountFormatter.format(product.basePrice) });
       }
       products.sort((a, b) => productCollator.compare(a.name, b.name));
       renderPriceTable();
@@ -156,7 +150,7 @@
     const renderPriceTable = () => {
       // Limpia caracteres no numéricos excepto el punto decimal
       const exchangeRate = getExchangeRate();
-      const searchQuery = inTableSearchInput.value.trim().toLowerCase();
+      const searchTerms = optimizeForSearch(inTableSearchInput.value).split(/\s+/).filter(Boolean);
 
       // Determina si se oculta la conversión (si la tasa es 0 o 1 es innecesario mostrarla)
       const shouldHideConversion = (exchangeRate === 0 || exchangeRate === 1);
@@ -174,9 +168,8 @@
       let hasMatches = false;// permite saber si hubo resultados, para mostrar una fila informativa en caso contrario.
 
       for (const product of products) {
-        if (searchQuery && !product._searchName.includes(searchQuery)) continue;
+        if (searchTerms.length > 0 && !searchTerms.every(term => product._searchName.includes(term)) ) continue;
         hasMatches = true;
-
         rowsHtmlParts.push(`<tr><td>${product._safeName}</td><td>${product._formattedBasePrice}</td>`);
         if (!shouldHideConversion) {
           const parts = amountFormatter.formatToParts(product.basePrice * exchangeRate);
@@ -189,7 +182,7 @@
 
       priceTableBody.innerHTML = hasMatches 
         ? rowsHtmlParts.join('')
-        : `<tr><td colspan="${shouldHideConversion ? 2 : 3}" class="text-center py-4"><i class="bi bi-inbox fs-3 d-block mb-1"></i>No se encontraron coincidencias</td></tr>`;
+        : `<tr aria-live="polite" aria-atomic="true"><td colspan="${shouldHideConversion ? 2 : 3}" class="text-center py-4"><i class="bi bi-inbox fs-3 d-block mb-1"></i>No se encontraron coincidencias</td></tr>`;
       rowsHtmlParts=null;
     };
 
@@ -219,39 +212,78 @@
 
     const MAX_AMOUNT_DIGITS=8;
     exchangeRateInput.style.maxWidth = `${amountFormatter.format((Math.pow(10,MAX_AMOUNT_DIGITS)-1)/100).length + 0.5}ch`;
-
-    let rawDigits = '';
-    const getExchangeRate = () => parseInt(rawDigits || '0', 10) / 100;
-
-    // Forzar siempre que la posición del cursor esté al final
-    const forceCaretToEnd = () => {
-      requestAnimationFrame(() => {
-        const len = exchangeRateInput.value.length;
-        exchangeRateInput.setSelectionRange(len, len);
-      });
+    const getExchangeRate = () => {
+      const rate = parseFloat(exchangeRateInput.value);
+      return isNaN(rate) ? 0 : rate;
     };
-    ['click', 'focus', 'keyup'].forEach(evt => {
-      exchangeRateInput.addEventListener(evt, forceCaretToEnd);
-    });
-
-    const updateAmount = () => {
-      const currentRate = getExchangeRate();
-      const isActive = currentRate > 0;
-      exchangeRateInput.value = amountFormatter.format(currentRate);
+    const updateExchangeRateUI = () => {
+      const isActive = getExchangeRate() > 0;
       exchangeRateInput.classList.toggle('text-success-emphasis', isActive);
       clearExchangeRateBtn.classList.toggle('d-none', !isActive);
       handleDebouncedInput();
-      forceCaretToEnd();
     };
+    let lastExchangeRateVal = '';
     exchangeRateInput.addEventListener('input', () => {
-      const digitsOnly = exchangeRateInput.value.replace(/\D/g, '');
-      rawDigits = digitsOnly.replace(/^0+/, '').slice(0, MAX_AMOUNT_DIGITS);
-      updateAmount();
+      let val = exchangeRateInput.value;
+      if (val.includes(',') && val.includes('.')) {
+        if (val.indexOf(',') < val.indexOf('.')) {
+          // Formato "1,234.56": Coma = miles, Punto = decimal
+          val = val.replace(/,/g, '');
+        } else {
+          // Formato "1.234,56": Punto = miles, Coma = decimal
+          val = val.replace(/\./g, '').replace(',', '.');
+        }
+      } else {
+        // Si solo hay comas (ej. teclado móvil "12,50"), se convierte a punto decimal
+        val = val.replace(',', '.');
+      }
+      val = val.replace(/[^0-9.]/g, '');
+      // Asegura que solo exista UN punto decimal
+      const parts = val.split('.');
+      if (parts.length > 2) {
+        val = parts[0] + '.' + parts.slice(1).join('');
+      }
+      // Restringe la cantidad total de dígitos a MAX_AMOUNT_DIGITS
+      let integerPart = parts[0] || '';
+      let decimalPart = parts[1] !== undefined ? parts[1] : null;
+      if (integerPart.length > MAX_AMOUNT_DIGITS) {
+        integerPart = integerPart.slice(0, MAX_AMOUNT_DIGITS);
+      }
+      const remainingDigitsForDecimals = MAX_AMOUNT_DIGITS - integerPart.length;
+      if (decimalPart !== null) {
+        if (remainingDigitsForDecimals <= 0) {
+          val = integerPart;
+        } else {
+          decimalPart = decimalPart.slice(0, remainingDigitsForDecimals);
+          val = integerPart + '.' + decimalPart;
+        }
+      } else {
+        val = integerPart;
+      }
+      // Actualiza el DOM solo si hubo cambios de formato
+      if (exchangeRateInput.value !== val) {
+        exchangeRateInput.value = val;
+      }
+      // Re-renderiza solo si el valor procesado cambió
+      if (val !== lastExchangeRateVal) {
+        lastExchangeRateVal = val;
+        updateExchangeRateUI();
+      }
     });
-
     exchangeRateInput.addEventListener('keydown', handleEnterKey);
+    exchangeRateInput.addEventListener('focus', () => exchangeRateInput.select());
+    // Limpia puntos decimales al final cuando el campo pierde el foco (ej: "45." -> "45")
+    exchangeRateInput.addEventListener('blur', () => {
+      if (exchangeRateInput.value.endsWith('.')) {
+        exchangeRateInput.value = exchangeRateInput.value.slice(0, -1);
+        lastExchangeRateVal = exchangeRateInput.value;
+        updateExchangeRateUI();
+      }
+    });
     clearExchangeRateBtn.addEventListener('click', () => {
-      rawDigits = ''; updateAmount(); exchangeRateInput.focus();
+      exchangeRateInput.value = lastExchangeRateVal = '';
+      updateExchangeRateUI();
+      exchangeRateInput.focus();
     });
 
     inTableSearchInput.addEventListener('keydown', handleEnterKey);
@@ -261,11 +293,16 @@
     });
     clearInTableSearchBtn.addEventListener('click', () => {
       inTableSearchInput.value='';
+      clearInTableSearchBtn.classList.add('d-none');
       handleDebouncedInput();
       inTableSearchInput.focus();
     });
-
-    updateAmount();
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        inTableSearchInput.focus();
+      }
+    });
 
     // Simula una transmisión en vivo cargando la cadena mock como un ReadableStream de red
     loadProductsFromStream(new Blob([mockNdjsonProducts]).stream());
